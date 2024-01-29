@@ -10,35 +10,55 @@ describe RMT::Mirror::Debian do
   end
 
   # Configuration for Debian mirroring instance
-  let(:base_dir) { '/test/repository/base/path/' }
+  let(:mirroring_base_dir) { '/test/repository/base/path/' }
   let(:configuration) do
     {
       repository: repository,
       logger: RMT::Logger.new('/dev/null'),
-      mirroring_base_dir: base_dir
+      mirroring_base_dir: mirroring_base_dir
     }
   end
 
   # Configuration for file reference to an arbitrary fixture
   let(:fixture) { 'Packages.gz' }
-  let(:config) do
+  let(:packages_configuration) do
     {
       relative_path: fixture,
       base_dir: file_fixture('debian/'),
       base_url: 'https://updates.suse.de/Debian/'
     }
   end
-  let(:packages_ref) { RMT::Mirror::FileReference.new(**config) }
+  let(:packages_ref) { RMT::Mirror::FileReference.new(**packages_configuration) }
+
 
   describe '#mirror_implementation' do
     before do
       allow(debian).to receive(:temp).with(:metadata).and_return('bar')
+      allow(debian).to receive(:create_repository_path)
+    end
+
+    let(:temp) { '/tmp/metadata/' }
+
+    it 'mirrors the whole repository' do
+      described_class.send(:public, *described_class.protected_instance_methods)
+      allow(debian).to receive(:temp).with(:metadata).and_return(temp)
+      allow(debian).to receive(:mirror_metadata).and_return([packages_ref])
+
+      expect(debian).to receive(:create_repository_path)
+      expect(debian).to receive(:create_temp_dir)
+      expect(debian).to receive(:mirror_packages).with([packages_ref])
+      expect(debian).to receive(:copy_directory_content).with(
+        source: File.join(temp, '*'),
+        destination: debian.repository_path
+      )
+      debian.mirror_implementation
     end
 
     it 'mirrors the metadata' do
       allow(debian).to receive(:create_temp_dir).with(:metadata)
       expect(debian).to receive(:mirror_metadata)
       allow(debian).to receive(:mirror_packages)
+      expect(debian).to receive(:create_repository_path)
       allow(debian).to receive(:copy_directory_content)
       debian.mirror_implementation
     end
@@ -47,6 +67,7 @@ describe RMT::Mirror::Debian do
       allow(debian).to receive(:create_temp_dir).with(:metadata)
       allow(debian).to receive(:mirror_metadata).and_return([])
       expect(debian).to receive(:mirror_packages)
+      expect(debian).to receive(:create_repository_path)
       allow(debian).to receive(:copy_directory_content)
       debian.mirror_implementation
     end
@@ -55,6 +76,7 @@ describe RMT::Mirror::Debian do
       allow(debian).to receive(:create_temp_dir).with(:metadata)
       allow(debian).to receive(:mirror_metadata).and_return([])
       allow(debian).to receive(:mirror_packages)
+      expect(debian).to receive(:create_repository_path)
       expect(debian).to receive(:copy_directory_content)
       debian.mirror_implementation
     end

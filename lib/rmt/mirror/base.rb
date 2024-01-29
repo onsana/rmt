@@ -4,11 +4,11 @@ class RMT::Mirror::Base
 
   attr_reader :logger, :repository
 
-  def initialize(repository:, logger:, mirroring_base_dir: RMT::DEFAULT_MIRROR_DIR, mirror_src: false, is_airgapped: false)
+  def initialize(repository:, logger:, mirroring_base_dir: RMT::DEFAULT_MIRROR_DIR, mirror_sources: false, is_airgapped: false)
     @repository = repository
     @mirroring_base_dir = mirroring_base_dir
     @logger = logger
-    @mirror_src = mirror_src
+    @mirror_sources = mirror_sources
     @is_airgapped = is_airgapped
     @deep_verify = false
 
@@ -21,11 +21,9 @@ class RMT::Mirror::Base
   end
 
   def mirror
-    # FIXME: stub me in specs!
-    create_repository_path
     logger.info _('Mirroring repository %{repo} to %{dir}') % { repo: repository.name || repository_url, dir: repository_path }
     mirror_implementation
-  rescue RMT::Mirror::Exception => e
+  rescue RMT::Mirror::Exception, RMT::Downloader::Exception => e
     raise RMT::Mirror::Exception.new(_('Error while mirroring repository: %{error}' % { error: e.message }))
   ensure
     cleanup_temp_dirs
@@ -124,7 +122,7 @@ class RMT::Mirror::Base
   end
 
   def need_to_download?(ref)
-    return false if ref.arch == 'src' && !@mirror_src
+    return false if ref.arch == 'src' && !@mirror_sources
     return false if validate_local_file(ref)
     return false if deduplicate(ref)
 

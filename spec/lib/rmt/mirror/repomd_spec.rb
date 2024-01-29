@@ -16,10 +16,11 @@ RSpec.describe RMT::Mirror::Repomd do
   let(:logger) { RMT::Logger.new('/dev/null') }
 
 
+  let(:repository_url) { 'https://updates.suse.com/sample/repository/15.4/product' }
   let(:repository) do
     create :repository,
            name: 'SUSE Linux Enterprise Server 15 SP4',
-           external_url: 'https://updates.suse.com/sample/repository/15.4/'
+           external_url: repository_url
   end
 
   # Configuration for Debian mirroring instance
@@ -50,10 +51,13 @@ RSpec.describe RMT::Mirror::Repomd do
   describe '#mirror_implementation' do
     let(:licenses) { instance_double(RMT::Mirror::License) }
 
-    it 'mirrors the whole repository' do
+    before do
       allow(RMT::Mirror::License).to receive(:new).and_return(licenses)
       allow(repomd).to receive(:temp).with(:metadata).and_return('a')
+    end
 
+    it 'mirrors the whole repository' do
+      expect(repomd).to receive(:create_repository_path)
       expect(repomd).to receive(:create_temp_dir).with(:metadata)
       expect(licenses).to receive(:mirror)
       expect(repomd).to receive(:mirror_metadata)
@@ -61,6 +65,22 @@ RSpec.describe RMT::Mirror::Repomd do
       expect(repomd).to receive(:replace_directory).with(source: 'a/repodata', destination: repomd.repository_path('repodata'))
 
       repomd.mirror_implementation
+    end
+
+    context 'non-product repositories' do
+      let(:repository_url) { 'https://updates.suse.com/sample/repository/15.4/update' }
+
+      it 'does not mirror licenses' do
+        expect(repomd).to receive(:create_repository_path)
+        expect(repomd).to receive(:create_temp_dir).with(:metadata)
+        expect(repomd).to receive(:mirror_metadata)
+        expect(repomd).to receive(:mirror_packages)
+        expect(repomd).to receive(:replace_directory).with(source: 'a/repodata', destination: repomd.repository_path('repodata'))
+
+        expect(licenses).not_to receive(:mirror)
+
+        repomd.mirror_implementation
+      end
     end
   end
 
@@ -86,7 +106,7 @@ RSpec.describe RMT::Mirror::Repomd do
       allow(repomd).to receive(:enqueue)
       allow(repomd).to receive(:download_enqueued)
       expect(repomd).to receive(:check_signature).with(key_file: duck_type(:local_path), signature_file: duck_type(:local_path),
-metadata_file: duck_type(:local_path))
+                                                       metadata_file: duck_type(:local_path))
       repomd.mirror_metadata
     end
 
@@ -94,8 +114,8 @@ metadata_file: duck_type(:local_path))
       allow(repomd).to receive(:download_cached!).and_return(repomd_ref)
       allow(repomd).to receive(:check_signature)
       allow(repomd).to receive(:download_enqueued)
+      allow(RepomdParser::RepomdXmlParser).to receive(:new).with(repomd_ref.local_path).and_return(repomd_parser)
 
-      expect(RepomdParser::RepomdXmlParser).to receive(:new).with(repomd_ref.local_path).and_return(repomd_parser)
       expect(repomd_parser).to receive(:parse).and_call_original
       expect(repomd).to receive(:enqueue).with(duck_type(:local_path)).exactly(4).times
 

@@ -6,9 +6,13 @@ require 'time'
 class RMT::Mirror::Repomd < RMT::Mirror::Base
 
   def mirror_implementation
+    create_repository_path
     create_temp_dir(:metadata)
-    licenses = RMT::Mirror::License.new(repository: repository, logger: logger, mirroring_base_dir: mirroring_base_dir)
-    licenses.mirror
+
+    if repository_url.ends_with?('product')
+      licenses = RMT::Mirror::License.new(repository: repository, logger: logger, mirroring_base_dir: mirroring_base_dir)
+      licenses.mirror
+    end
 
     metadata_files = mirror_metadata
     mirror_packages(metadata_files)
