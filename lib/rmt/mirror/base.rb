@@ -80,7 +80,6 @@ class RMT::Mirror::Base
     File.join(mirroring_base_dir, repository.local_path, *args)
   end
 
-  # FIXME: Write some specs for me!
   def create_repository_path
     FileUtils.mkpath(repository_path) unless Dir.exist?(repository_path)
   rescue StandardError => e
@@ -111,8 +110,8 @@ class RMT::Mirror::Base
     @temp_dirs = {}
   end
 
-  def enqueue(ref)
-    @enqueued << ref
+  def enqueue(refs)
+    @enqueued.concat(Array(refs))
   end
 
   def download_enqueued(continue_on_error: false)
@@ -155,7 +154,7 @@ class RMT::Mirror::Base
 
   def copy_directory_content(source:, destination:)
     replace_directory(source: source, destination: destination, with_backup: false) do
-      FileUtils.mv(Dir.glob(source), destination)
+      FileUtils.mv(Dir.glob(source), destination, force: true)
     end
   end
 end

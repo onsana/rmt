@@ -1,7 +1,7 @@
 require 'rails_helper'
 
 describe RMT::Mirror::Debian do
-  subject(:debian) { described_class.new(**configuration) }
+  subject(:debian) { described_class.new(**debian_mirror_configuration) }
 
   let(:repository) do
     create :repository,
@@ -11,7 +11,7 @@ describe RMT::Mirror::Debian do
 
   # Configuration for Debian mirroring instance
   let(:mirroring_base_dir) { '/test/repository/base/path/' }
-  let(:configuration) do
+  let(:debian_mirror_configuration) do
     {
       repository: repository,
       logger: RMT::Logger.new('/dev/null'),
@@ -83,14 +83,15 @@ describe RMT::Mirror::Debian do
   end
 
   describe '#mirror_metadata' do
-    let(:config) do
+    let(:release_fixture) { 'Release' }
+    let(:release_configuration) do
       {
-        relative_path: 'Release',
+        relative_path: release_fixture,
         base_dir: file_fixture('debian/'),
         base_url: 'https://updates.suse.de/Debian/'
       }
     end
-    let(:release_ref) { RMT::Mirror::FileReference.new(**config) }
+    let(:release_ref) { RMT::Mirror::FileReference.new(**release_configuration) }
 
     before do
       allow(debian).to receive(:temp).with(:metadata).and_return('bar')
@@ -100,7 +101,7 @@ describe RMT::Mirror::Debian do
     it 'succeeds' do
       allow(debian).to receive(:check_signature)
       allow(debian).to receive(:parse_release_file).and_return([])
-      expect(debian).to receive(:download_enqueued)
+      expect(debian).to receive(:download_enqueued).twice
       debian.mirror_metadata
     end
 
@@ -110,7 +111,36 @@ describe RMT::Mirror::Debian do
       it 'downloads and parses the file' do
         expect(debian).to receive(:download_cached!).with(release_path, to: 'bar')
         expect(debian).to receive(:check_signature)
+        expect(debian).to receive(:download_enqueued).twice
+        debian.mirror_metadata
+      end
+    end
+
+    context 'nested debian repository' do
+      let(:release_fixture) { 'nested/Release' }
+
+      before do
+        allow(debian).to receive(:download_cached!).and_return(release_ref)
+        allow(debian).to receive(:check_signature)
+        described_class.send(:public, :enqueued)
+      end
+
+      it 'ignores non-existent references from release file' do
+        allow(debian).to receive(:download_enqueued)
+        allow(debian).to receive(:enqueue)
+
+        expect(debian).to receive(:download_enqueued).with(continue_on_error: true)
+        expect(debian).to receive(:enqueue).with(all(be_like_relative_path(/(Packages|Sources|Translation)(-\w+)?$/)))
+
+        debian.mirror_metadata
+      end
+
+      it 'calls download_enqueued for the remaining valid paths' do
+        expect(debian).to receive(:download_enqueued).with(continue_on_error: true)
         expect(debian).to receive(:download_enqueued)
+        expect(debian).to receive(:enqueue).with(all(be_like_relative_path(/(Packages|Sources|Translation)(-\w+)?$/))).once
+        expect(debian).to receive(:enqueue).once
+
         debian.mirror_metadata
       end
     end
@@ -161,17 +191,38 @@ describe RMT::Mirror::Debian do
         expect { debian.parse_package_list(packages_ref) }.to raise_error(RMT::Mirror::Exception, /unexpected end of file/)
       end
     end
+
+    context 'nested repository structure' do
+      let(:fixture) { 'nested/Packages.gz' }
+      let(:repository) do
+        create :repository,
+          name: 'HYPE product repository debian 15.3',
+          external_url: 'https://ppa.launchpadcontent.net/ondrej/nginx/ubuntu/dists/focal/'
+      end
+
+      it 'removes dists/ from mirroring path and external URL' do
+        packages = debian.parse_package_list(packages_ref)
+
+        expect(packages).to all(
+          have_attributes(
+            base_url: 'https://ppa.launchpadcontent.net/ondrej/nginx/ubuntu/',
+            base_dir: mirroring_base_dir + 'ondrej/nginx/ubuntu/',
+            cache_dir: mirroring_base_dir + 'ondrej/nginx/ubuntu/'
+          )
+        )
+      end
+    end
   end
 
   describe '#parse_release_file' do
-    let(:config) do
+    let(:release_configuration) do
       {
         relative_path: rel_path,
         base_dir: file_fixture('debian/'),
         base_url: 'https://updates.suse.de/Debian/'
       }
     end
-    let(:release_ref) { RMT::Mirror::FileReference.new(**config) }
+    let(:release_ref) { RMT::Mirror::FileReference.new(**release_configuration) }
 
     context 'Release file is valid' do
       let(:rel_path) { 'Release' }

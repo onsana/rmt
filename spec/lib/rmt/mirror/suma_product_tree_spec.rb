@@ -1,9 +1,9 @@
 require 'rails_helper'
 
 RSpec.describe RMT::Mirror::SumaProductTree do
-  subject(:suma) { described_class.new(**configuration) }
+  subject(:suma) { described_class.new(**suma_mirror_configuration) }
 
-  let(:configuration) do
+  let(:suma_mirror_configuration) do
     {
       logger: RMT::Logger.new('/dev/null'),
       mirroring_base_dir: base_dir
@@ -23,7 +23,7 @@ RSpec.describe RMT::Mirror::SumaProductTree do
 
   describe '#mirror' do
     before do
-      allow(suma).to receive(:downloader).and_return downloader
+      allow(RMT::Downloader).to receive(:new).and_return downloader
     end
 
     it 'mirrors the product_tree file' do
