@@ -121,6 +121,30 @@ RSpec.describe RMT::CLI::Mirror do
       end
     end
 
+    context 'output with two repositories' do
+      let!(:repository) { create :repository, :with_products, mirroring_enabled: true }
+      let!(:additional_repository) { create :repository, :with_products, mirroring_enabled: true }
+
+      it 'mirrors additional repositories' do
+        expect_any_instance_of(RMT::Mirror).to receive(:mirror_suma_product_tree)
+        expect_any_instance_of(RMT::Mirror).to receive(:mirror).with(
+          repository_url: repository.external_url,
+          local_path: anything,
+          repo_name: anything,
+          auth_token: anything
+        )
+
+        expect_any_instance_of(RMT::Mirror).to receive(:mirror).with(
+          repository_url: additional_repository.external_url,
+          local_path: anything,
+          repo_name: anything,
+          auth_token: anything
+        )
+
+        expect { command }.to output(a_string_including('Total mirrored repositories: 2')).to_stdout
+      end
+    end
+
     context 'with repositories changing during mirroring' do
       let!(:repository) { create :repository, :with_products, mirroring_enabled: true }
       let!(:additional_repository) { create :repository, :with_products, mirroring_enabled: false }
@@ -200,7 +224,6 @@ RSpec.describe RMT::CLI::Mirror do
           repo_name: anything,
           auth_token: anything
         )
-
         expect { command }.to output(/\e\[32mMirroring complete.\e\[0m/).to_stdout
       end
     end

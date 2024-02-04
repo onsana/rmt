@@ -4,6 +4,7 @@ class RMT::CLI::Mirror < RMT::CLI::Base
   desc 'all', _('Mirror all enabled repositories')
   def all
     RMT::Lockfile.lock('mirror') do
+      start_time = Time.now.to_i
       begin
         mirror.mirror_suma_product_tree(repository_url: 'https://scc.suse.com/suma/')
       rescue RMT::Mirror::Exception => e
@@ -21,8 +22,9 @@ class RMT::CLI::Mirror < RMT::CLI::Base
       until (repos = Repository.only_mirroring_enabled.where.not(id: mirrored_repo_ids).load).empty?
         mirror_repos!(repos)
         mirrored_repo_ids.concat(repos.pluck(:id))
+        total_transferred_files(repos)
+        summary_data.merge!({total_repos: mirrored_repo_ids.size, start_time: start_time})
       end
-
       finish_execution
     end
   end
@@ -33,6 +35,7 @@ class RMT::CLI::Mirror < RMT::CLI::Base
   desc 'repository IDS', _('Mirror enabled repositories with given repository IDs')
   def repository(*ids)
     RMT::Lockfile.lock('mirror') do
+      start_time = Time.now.to_i
       ids = clean_target_input(ids)
       raise RMT::CLI::Error.new(_('No repository IDs supplied')) if ids.empty?
 
@@ -44,6 +47,8 @@ class RMT::CLI::Mirror < RMT::CLI::Base
       end
 
       mirror_repos!(repos)
+      total_transferred_files(repos)
+      summary_data.merge!(total_repos: repos.size, start_time: start_time)
       finish_execution
     end
   end
@@ -51,6 +56,7 @@ class RMT::CLI::Mirror < RMT::CLI::Base
   desc 'product IDS', _('Mirror enabled repositories for a product with given product IDs')
   def product(*targets)
     RMT::Lockfile.lock('mirror') do
+      start_time = Time.now.to_i
       targets = clean_target_input(targets)
       raise RMT::CLI::Error.new(_('No product IDs supplied')) if targets.empty?
 
@@ -72,6 +78,8 @@ class RMT::CLI::Mirror < RMT::CLI::Base
       end
 
       mirror_repos!(repos)
+      total_transferred_files(repos)
+      summary_data.merge!({total_repos: repos.size, start_time: start_time})
       finish_execution
     end
   end
@@ -84,6 +92,10 @@ class RMT::CLI::Mirror < RMT::CLI::Base
 
   def errors
     @errors ||= []
+  end
+
+  def summary_data
+    @summary_data ||= {}
   end
 
   def errored_repos_id
@@ -145,8 +157,35 @@ class RMT::CLI::Mirror < RMT::CLI::Base
     end
   end
 
+  def seconds_to_hms(sec)
+    "%02d:%02d:%02d" % [sec / 3600, sec / 60 % 60, sec % 60]
+  end
+
+  def total_transferred_files(repos)
+    return if repos.compact.empty?
+
+    total_files = 0
+    total_size = 0
+    base_directory = RMT::DEFAULT_MIRROR_DIR
+    repos.each do |repo|
+      path = File.join(base_directory, repo.local_path)
+      downloaded_files = DownloadedFile.where('local_path LIKE ?', "#{path}%")
+      total_files += downloaded_files.size
+      total_size += downloaded_files.sum(:file_size)
+    end
+    summary_data.merge!(total_files: total_files, total_size: total_size)
+  end
+
   def finish_execution
     if errors.empty?
+      seconds = Time.now.to_i - (summary_data[:start_time] || 0)
+      mirror_time = seconds_to_hms(seconds)
+      total_size = ActiveSupport::NumberHelper.number_to_human_size(summary_data[:total_size])
+      logger.info("\e[32m" + _('Summary:') + "\e[0m")
+      logger.info("\e[32m" + _('Total mirrored repositories: ') + summary_data[:total_repos].to_s + "\e[0m")
+      logger.info("\e[32m" + _('Total transferred files: ') + summary_data[:total_files].to_s + "\e[0m")
+      logger.info("\e[32m" + _('Total transferred file size: ') + total_size.to_s + "\e[0m")
+      logger.info("\e[32m" + _('Total Mirror Time: ') + mirror_time.to_s + "\e[0m")
       logger.info("\e[32m" + _('Mirroring complete.') + "\e[0m")
     else
       logger.warn("\e[31m" + _('The following errors occurred while mirroring:') + "\e[0m")
